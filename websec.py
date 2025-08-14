@@ -11,10 +11,10 @@ import time
 import math
 import random
 import httpx
-import asyncio
 import concurrent.futures
 from random import choice
 from functools import partial
+from tkinter import ttk
 
 # Настройка внешнего вида
 ctk.set_appearance_mode("dark")
@@ -26,10 +26,10 @@ class UltraSimpleScanner(ctk.CTk):
         
         # Основные настройки окна
         self.title("WebSec Scanner")
-        self.geometry("1100x750")
-        self.minsize(900, 650)
+        self.geometry("1200x800")  # Увеличим размер окна
+        self.minsize(1000, 700)    # Минимальный размер
         
-        # Создаем сетку
+        # Создаем сетку (вернули исходные пропорции)
         self.grid_rowconfigure(0, weight=0)  # Верхняя панель
         self.grid_rowconfigure(1, weight=0)  # Анимация подключения
         self.grid_rowconfigure(2, weight=1)   # Основной контент
@@ -185,25 +185,90 @@ class UltraSimpleScanner(ctk.CTk):
 
         # Вкладка веб-путей
         self.tab_paths.grid_columnconfigure(0, weight=1)
-        self.tab_paths.grid_rowconfigure(0, weight=1)
+        self.tab_paths.grid_rowconfigure(0, weight=0)  # Заголовок
+        self.tab_paths.grid_rowconfigure(1, weight=1)  # Таблица
 
+        # Заголовок
         ctk.CTkLabel(
             self.tab_paths, 
             text="Доступные веб-пути",
             font=("Arial", 14, "bold"),
             anchor="w"
-        ).pack(fill="x", padx=15, pady=(10, 5))
+        ).grid(row=0, column=0, padx=15, pady=(10, 5), sticky="w")
 
-        self.paths_text = ctk.CTkTextbox(
-            self.tab_paths, 
-            wrap="word",
-            font=("Arial", 13),
-            activate_scrollbars=True
+        # Контейнер для Treeview и скроллбара
+        tree_frame = ctk.CTkFrame(self.tab_paths, corner_radius=8, fg_color="#2a2d2e")
+        tree_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        tree_frame.grid_columnconfigure(0, weight=1)
+        tree_frame.grid_rowconfigure(0, weight=1)
+
+        # Создаем стиль для Treeview с темной темой
+        style = ttk.Style()
+        style.theme_use("clam")  # Базовый стиль, который хорошо кастомизируется
+        
+        # Конфигурация стилей
+        style.configure("Treeview", 
+                        background="#292828",  # Темный фон
+                        foreground="white",     # Белый текст
+                        rowheight=30,           # Увеличим высоту строк
+                        fieldbackground="#2a2d2e",
+                        font=('Arial', 12),
+                        borderwidth=0,
+                        highlightthickness=0,
+                        relief="flat")
+        
+        style.configure("Treeview.Heading", 
+                        background="#1e1e1e", 
+                        foreground="#fff",   # Зеленый заголовок
+                        font=('Arial', 12, 'bold'),
+                        padding=(5, 5),
+                        relief="flat",
+                        borderwidth=0)
+        
+        style.map("Treeview", 
+                  background=[('selected', '#22559b')],  # Цвет выделения
+                  foreground=[('selected', 'white')])
+        
+        style.map("Treeview.Heading", 
+                  background=[('active', '#3d3d3d')])
+
+        # Создаем Treeview с колонками
+        self.paths_tree = ttk.Treeview(
+            tree_frame,
+            columns=("status", "url", "type"),
+            show="headings",
+            selectmode="browse",
+            style="Treeview"
         )
-        self.paths_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.paths_text.insert("1.0", "Доступные пути будут показаны здесь")
-        self.paths_text.configure(state="disabled")
-
+        
+        # Настраиваем колонки (увеличена ширина статуса, уменьшены остальные)
+        self.paths_tree.heading("status", text="Статус", anchor="w", command=lambda: self.sort_treeview("status"))
+        self.paths_tree.heading("url", text="URL", anchor="w", command=lambda: self.sort_treeview("url"))
+        self.paths_tree.heading("type", text="Тип", anchor="w", command=lambda: self.sort_treeview("type"))
+        
+        # Увеличили ширину столбца статуса, уменьшили остальные
+        self.paths_tree.column("status", width=100, minwidth=90, stretch=False)
+        self.paths_tree.column("url", width=350, minwidth=250, stretch=True)
+        self.paths_tree.column("type", width=100, minwidth=80, stretch=False)
+        
+        # Добавляем вертикальный скроллбар
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.paths_tree.yview
+        )
+        self.paths_tree.configure(yscrollcommand=scrollbar.set)
+        
+        # Размещаем компоненты с правильным расширением
+        self.paths_tree.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scrollbar.grid(row=0, column=1, sticky="ns", padx=0, pady=0)
+        
+        # Привязываем событие выбора
+        self.paths_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        
+        # Переменные для сортировки
+        self.sort_column = "url"  # Колонка по умолчанию
+        self.sort_direction = "asc"  # Направление по умолчанию
         
         # Статус бар
         self.status_var = tk.StringVar(value="Готов к сканированию")
@@ -224,9 +289,98 @@ class UltraSimpleScanner(ctk.CTk):
         self.marker = None
         self.scan_stage = 0
         self.scan_thread = None
+        self.paths_data = []  # Для хранения данных о путях
         
         # Определяем наш IP
         self.get_my_ip()
+
+    def sort_treeview(self, column):
+        """Сортировка таблицы по указанной колонке"""
+        # Определяем направление сортировки
+        if self.sort_column == column:
+            self.sort_direction = "desc" if self.sort_direction == "asc" else "asc"
+        else:
+            self.sort_column = column
+            self.sort_direction = "asc"
+        
+        # Получаем все элементы из таблицы
+        items = [(self.paths_tree.set(item, column), item) for item in self.paths_tree.get_children('')]
+        
+        # Определяем тип данных для сортировки
+        if column == "status":
+            # Для статуса пробуем преобразовать в число
+            try:
+                items = [(int(item[0]), item[1]) for item in items]
+            except:
+                items = [(item[0].lower(), item[1]) for item in items]
+        else:
+            # Для остальных колонок - обычная строка
+            items = [(item[0].lower(), item[1]) for item in items]
+        
+        # Сортируем элементы
+        reverse = (self.sort_direction == "desc")
+        items.sort(reverse=reverse)
+        
+        # Перемещаем элементы в новом порядке
+        for index, (_, item) in enumerate(items):
+            self.paths_tree.move(item, '', index)
+        
+        # Обновляем индикаторы в заголовках
+        self.update_sort_indicators()
+    
+    def update_sort_indicators(self):
+        """Обновляет индикаторы сортировки в заголовках"""
+        for col in ["status", "url", "type"]:
+            current_text = self.paths_tree.heading(col)["text"]
+            # Удаляем стрелочки из всех заголовков
+            if current_text.endswith(" ↓") or current_text.endswith(" ↑"):
+                current_text = current_text[:-2]
+            
+            # Добавляем стрелочку к текущей колонке
+            if col == self.sort_column:
+                arrow = " ↑" if self.sort_direction == "asc" else " ↓"
+                self.paths_tree.heading(col, text=current_text + arrow)
+            else:
+                self.paths_tree.heading(col, text=current_text)
+
+    def on_tree_select(self, event):
+        """Обработчик выбора строки в таблице"""
+        selected = self.paths_tree.selection()
+        if selected:
+            item = self.paths_tree.item(selected)
+            values = item['values']
+            if values:
+                self.status_var.set(f"Выбран путь: {values[1]} (Статус: {values[0]})")
+    
+    def update_paths_table(self, data):
+        """Обновляет таблицу с веб-путями"""
+        # Очищаем предыдущие данные
+        for row in self.paths_tree.get_children():
+            self.paths_tree.delete(row)
+        
+        # Сохраняем данные
+        self.paths_data = data
+        
+        # Добавляем новые данные
+        for status, url, path_type in data:
+            self.paths_tree.insert("", "end", values=(status, url, path_type))
+        
+        # Обновляем индикаторы сортировки
+        self.update_sort_indicators()
+        
+        # Применяем текущую сортировку
+        self.sort_treeview(self.sort_column)  # Это пересортирует данные
+    
+    def clear_paths_table(self):
+        """Очищает таблицу веб-путей"""
+        for row in self.paths_tree.get_children():
+            self.paths_tree.delete(row)
+        self.paths_data = []
+        
+        # Сбрасываем индикаторы сортировки
+        self.sort_column = "url"
+        self.sort_direction = "asc"
+        self.update_sort_indicators()
     
     def get_my_ip(self):
         """Получаем наш публичный IP"""
@@ -345,14 +499,15 @@ class UltraSimpleScanner(ctk.CTk):
         revealed = self.server_ip[:revealed_chars]
         hidden = '*' * (total_chars - revealed_chars)
         return revealed + hidden
+    
     def start_scan(self, event=None):
         port = 80
         if self.scan_active:
             return
 
-
         target = self.target_entry.get().strip()
-        if ":" in target: target, port = target.split(":")
+        if ":" in target: 
+            target, port = target.split(":")
         if not target:
             self.status_var.set("Ошибка: введите домен или IP")
             return
@@ -402,10 +557,13 @@ class UltraSimpleScanner(ctk.CTk):
     
     def clear_results(self):
         # Очистка текстовых полей
-        for widget in [self.geo_text, self.ports_text, self.paths_text]:
+        for widget in [self.geo_text, self.ports_text]:
             widget.configure(state="normal")
             widget.delete("1.0", "end")
             widget.configure(state="disabled")
+        
+        # Очистка таблицы путей
+        self.clear_paths_table()
         
         # Очистка карты
         if self.marker:
@@ -644,11 +802,8 @@ class UltraSimpleScanner(ctk.CTk):
     
     def check_web_paths(self, target, port):
         try:
-            # Очистка текстового поля
-            self.paths_text.configure(state="normal")
-            self.paths_text.delete("1.0", "end")
-            self.paths_text.insert("end", "Сканирование начато...\n")
-            self.paths_text.see("end")
+            # Очистка таблицы
+            self.clear_paths_table()
             
             # Загрузка путей
             try:
@@ -656,7 +811,7 @@ class UltraSimpleScanner(ctk.CTk):
                     paths = [line.strip() for line in f if line.strip()]
                 print(f"Загружено {len(paths)} путей из файла")
             except Exception as e:
-                self.paths_text.insert("end", f"Ошибка чтения файла: {str(e)}\n")
+                self.status_var.set(f"Ошибка чтения файла: {str(e)}")
                 print(f"Ошибка чтения файла: {str(e)}")
                 return
 
@@ -669,15 +824,15 @@ class UltraSimpleScanner(ctk.CTk):
                 "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36"
             ]
             
-            found_paths = []
             protocols = ["http", "https"]
-            results_to_display = []
             last_update_time = time.time()
             processed_count = 0
             found_count = 0
+            accumulated_paths_data = []  # Для накопления данных
+            total_urls = 0
+            urls = []
             
             # Формируем URL правильно
-            urls = []
             for protocol in protocols:
                 if port != 80:
                     base_url = f"{protocol}://{target}:{port}"
@@ -694,8 +849,7 @@ class UltraSimpleScanner(ctk.CTk):
                     urls.append(url)
             
             total_urls = len(urls)
-            self.paths_text.insert("end", f"Проверяем {total_urls} путей...\n")
-            self.paths_text.see("end")
+            self.status_var.set(f"Проверяем {total_urls} путей...")
             print(f"Начинаем сканирование: {total_urls} URL")
             print(f"Пример URL: {urls[0] if urls else 'N/A'}")
             
@@ -711,16 +865,16 @@ class UltraSimpleScanner(ctk.CTk):
                         
                         # Расширенные условия успеха
                         if 200 <= response.status_code < 400:
-                            return url, response.status_code
+                            return url, response.status_code, "OK"
                         # Для некоторых сайтов 403 может быть успехом
                         elif response.status_code == 403 and len(response.text) > 100:
-                            return url, response.status_code
+                            return url, response.status_code, "Forbidden"
                         # Обработка редиректов
                         elif 300 <= response.status_code < 400:
                             location = response.headers.get('Location', '')
                             if location and not location.startswith(('http://', 'https://')):
                                 location = url + location
-                            return f"Redirect: {url} -> {location}", response.status_code
+                            return f"Redirect: {url} -> {location}", response.status_code, "Redirect"
                 except httpx.TimeoutException:
                     return None
                 except httpx.ConnectError:
@@ -728,11 +882,22 @@ class UltraSimpleScanner(ctk.CTk):
                 except Exception as e:
                     # Логируем только необычные ошибки
                     if not isinstance(e, (httpx.ReadTimeout, httpx.PoolTimeout)):
-                        return f"Error: {url} - {str(e)}", 0
+                        return f"Error: {url} - {str(e)}", 0, "Error"
                 return None
             
+            # Функция для обновления GUI
+            def update_gui():
+                nonlocal accumulated_paths_data
+                if accumulated_paths_data:
+                    # Обновляем таблицу с накопленными данными
+                    self.update_paths_table(self.paths_data + accumulated_paths_data)
+                    # Сохраняем все данные
+                    self.paths_data.extend(accumulated_paths_data)
+                    # Очищаем буфер
+                    accumulated_paths_data = []
+            
             # Используем ThreadPoolExecutor с ограниченным количеством потоков
-            with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
                 future_to_url = {executor.submit(check_single_url, url): url for url in urls}
                 
                 for future in concurrent.futures.as_completed(future_to_url):
@@ -740,7 +905,7 @@ class UltraSimpleScanner(ctk.CTk):
                         # Отменяем все оставшиеся задачи
                         for f in future_to_url:
                             f.cancel()
-                        self.paths_text.insert("end", "\nСканирование отменено\n")
+                        self.status_var.set("Сканирование отменено")
                         break
                     
                     processed_count += 1
@@ -755,61 +920,40 @@ class UltraSimpleScanner(ctk.CTk):
                     try:
                         result = future.result()
                         if result:
-                            # Обрабатываем разные типы результатов
-                            if isinstance(result, tuple):
-                                result_url, status_code = result
-                                
-                                # Для редиректов
-                                if isinstance(result_url, str) and result_url.startswith("Redirect:"):
-                                    results_to_display.append(f"{status_code}: {result_url}\n")
-                                    found_count += 1
-                                # Для обычных URL
-                                else:
-                                    found_paths.append(result_url)
-                                    found_count += 1
-                                    display_url = result_url.replace(target, "***")
-                                    results_to_display.append(f"{status_code}: {display_url}\n")
-                            # Обработка ошибок
-                            elif isinstance(result, str) and result.startswith("Error:"):
-                                results_to_display.append(f"{result}\n")
+                            found_count += 1
+                            result_url, status_code, path_type = result
+                            
+                            # Добавляем данные в буфер
+                            accumulated_paths_data.append((str(status_code), result_url, path_type))
+                            
+                            # Обновляем GUI каждые 2 секунды
+                            current_time = time.time()
+                            if current_time - last_update_time >= 2.0:
+                                self.after(0, update_gui)
+                                last_update_time = current_time
+                            
                     except Exception as e:
-                        results_to_display.append(f"Ошибка обработки: {url} - {str(e)}\n")
+                        print(f"Ошибка обработки: {str(e)}")
                     
-                    # Обновляем GUI только каждые 0.5 секунды или при 50+ результатах
-                    current_time = time.time()
-                    if (current_time - last_update_time > 1 or 
-                        len(results_to_display) >= 100 or 
-                        processed_count == total_urls):
-                        
-                        if results_to_display:
-                            self.paths_text.configure(state="normal")
-                            for res in results_to_display:
-                                self.paths_text.insert("end", res)
-                            self.paths_text.see("end")
-                            self.paths_text.configure(state="disabled")
-                            results_to_display = []
-                        
-                        last_update_time = current_time
+                    # Обновляем статус каждые 100 записей
+                    if processed_count % 100 == 0:
+                        self.status_var.set(f"Проверено: {processed_count}/{total_urls}, Найдено: {found_count}")
+            
+            # Финальное обновление GUI
+            if accumulated_paths_data:
+                self.after(0, update_gui)
             
             # Финал сканирования
-            self.paths_text.configure(state="normal")
-            if found_paths:
-                self.paths_text.insert("end", f"\nНайдено {found_count} доступных путей\n")
-            else:
-                self.paths_text.insert("end", "Доступные пути не найдены\n")
-                print("Доступные пути не найдены. Проверьте целевой домен и файл paths.txt")
-            
             if not self.scan_cancel:
-                self.paths_text.insert("end", "Сканирование завершено\n")
+                self.status_var.set(f"Сканирование завершено! Найдено {found_count} путей")
             
             print(f"Сканирование завершено. Проверено: {processed_count}/{total_urls}, Найдено: {found_count} путей")
             
         except Exception as e:
-            self.paths_text.insert("end", f"Ошибка: {str(e)}\n")
+            self.status_var.set(f"Ошибка: {str(e)}")
             print(f"Критическая ошибка: {str(e)}")
-        finally:
-            self.paths_text.configure(state="disabled")
-            self.paths_text.see("end")
+            raise
+
 if __name__ == "__main__":
     app = UltraSimpleScanner()
     app.mainloop()
