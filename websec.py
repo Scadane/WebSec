@@ -18,26 +18,124 @@ from random import choice
 from functools import partial
 from tkinter import ttk
 import urllib3
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from localization import translations
+import ctypes
 from PIL import Image
-# Настройка внешнего вида
+from settings import *
+# ====================== ГЛОБАЛЬНЫЕ НАСТРОЙКИ ======================
+# Настройки DPI и масштабирования
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # Для Windows 10/11
+except:
+    pass
+
+# Настройки внешнего вида
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
+# Начальное значение масштабирования
+SCALING_FACTOR = 0.95  # Основной параметр масштабирования
 
+# Применяем масштабирование
+ctk.set_widget_scaling(SCALING_FACTOR)
+ctk.set_window_scaling(SCALING_FACTOR)
+
+# Базовые размеры (до масштабирования)
+BASE_FONT_SIZE = 11
+BASE_ROW_HEIGHT = 40
+BASE_ENTRY_HEIGHT = 40
+BASE_BUTTON_WIDTH = 120
+BASE_WINDOW_WIDTH = 1200
+BASE_WINDOW_HEIGHT = 800
+
+# Масштабированные размеры
+TABLE_FONT_SIZE = int(BASE_FONT_SIZE * SCALING_FACTOR)
+TABLE_ROW_HEIGHT = int(BASE_ROW_HEIGHT * SCALING_FACTOR)
+TABLE_HEADER_FONT = ('Arial', TABLE_FONT_SIZE, 'bold')
+ENTRY_HEIGHT = int(BASE_ENTRY_HEIGHT * SCALING_FACTOR)
+BUTTON_WIDTH = int(BASE_BUTTON_WIDTH * SCALING_FACTOR)
+WINDOW_WIDTH = int(BASE_WINDOW_WIDTH * SCALING_FACTOR)
+WINDOW_HEIGHT = int(BASE_WINDOW_HEIGHT * SCALING_FACTOR)
+
+# Цвета
+BG_COLOR = "#2a2d2e"
+TREEVIEW_BG = "#292828"
+TREEVIEW_FG = "white"
+TREEVIEW_FIELD_BG = "#2a2d2e"
+HEADER_BG = "#1e1e1e"
+HEADER_FG = "#ffffff"
+SELECTION_BG = "#22559b"
+SELECTION_FG = "white"
+
+# Размеры столбцов (базовые, будут масштабироваться)
+COLUMN_WIDTHS = {
+    'paths': {
+        'url': int(350 * SCALING_FACTOR),
+        'status': int(100 * SCALING_FACTOR),
+        'type': int(100 * SCALING_FACTOR)
+    },
+    'subdomains': {
+        'subdomain': int(130 * SCALING_FACTOR),
+        'ip': int(130 * SCALING_FACTOR),
+        'status': int(100 * SCALING_FACTOR),
+        'length': int(100 * SCALING_FACTOR)
+    }
+}
+
+# Минимальные ширины столбцов
+MIN_COLUMN_WIDTHS = {
+    'paths': {
+        'url': int(250 * SCALING_FACTOR),
+        'status': int(80 * SCALING_FACTOR),
+        'type': int(80 * SCALING_FACTOR)
+    },
+    'subdomains': {
+        'subdomain': int(120 * SCALING_FACTOR),
+        'ip': int(100 * SCALING_FACTOR),
+        'status': int(50 * SCALING_FACTOR),
+        'length': int(50 * SCALING_FACTOR)
+    }
+}
+
+# Отключение предупреждений
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class UltraSimpleScanner(ctk.CTk):
     def __init__(self):
+        # Загрузка настроек перед инициализацией интерфейса
+        self.settings_manager = SettingsManager()
+        settings = self.settings_manager.load_settings()
+        
+        # Устанавливаем язык по умолчанию
+        self.current_language = settings['language']
+        self.translations = translations
+        
+        # Устанавливаем масштабирование
+        global SCALING_FACTOR
+        SCALING_FACTOR = settings['scaling'] / 100.0
+        
+        # Применяем масштабирование
+        ctk.set_widget_scaling(SCALING_FACTOR)
+        ctk.set_window_scaling(SCALING_FACTOR)
+        
+        # Пересчитываем размеры
+        TABLE_FONT_SIZE = int(BASE_FONT_SIZE * SCALING_FACTOR)
+        TABLE_ROW_HEIGHT = int(BASE_ROW_HEIGHT * SCALING_FACTOR)
+        ENTRY_HEIGHT = int(BASE_ENTRY_HEIGHT * SCALING_FACTOR)
+        BUTTON_WIDTH = int(BASE_BUTTON_WIDTH * SCALING_FACTOR)
+        WINDOW_WIDTH = int(BASE_WINDOW_WIDTH * SCALING_FACTOR)
+        WINDOW_HEIGHT = int(BASE_WINDOW_HEIGHT * SCALING_FACTOR)
+        
         super().__init__()
         
-        # Основные настройки окна
-        self.title("WebSec")
-        self.geometry("1200x800")
-        self.minsize(1000, 700)
+        # Основные настройки окна с учетом масштабирования
+        self.title(self._("app_title"))
+        self.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        self.minsize(int(1000 * SCALING_FACTOR), int(700 * SCALING_FACTOR))
         self.iconbitmap("iconw.ico")
 
-        # Создаем сетку
+        # Настройка сетки
         self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=0)
         self.grid_rowconfigure(2, weight=1)
@@ -45,57 +143,32 @@ class UltraSimpleScanner(ctk.CTk):
         self.grid_columnconfigure(1, weight=2)
         
         # Верхняя панель
-        self.header_frame = ctk.CTkFrame(self, corner_radius=10, fg_color="#2c3e50")
-        self.header_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
-        
-        self.target_entry = ctk.CTkEntry(
-            self.header_frame, 
-            placeholder_text="Введите домен или IP...",
-            width=400,
-            height=40,
-            font=("Arial", 16),
-            corner_radius=8
-        )
-        self.target_entry.pack(side="left", padx=20, pady=15, fill="x", expand=True)
-        self.target_entry.bind("<Return>", self.start_scan)
-        
-        self.scan_btn = ctk.CTkButton(
-            self.header_frame, 
-            text="Сканировать",
-            command=self.start_scan,
-            height=40,
-            width=120,
-            font=("Arial", 14, "bold"),
-            fg_color="#27ae60",
-            hover_color="#2ecc71",
-            corner_radius=8
-        )
-        self.scan_btn.pack(side="right", padx=20, pady=15)
-        
-        self.cancel_btn = ctk.CTkButton(
-            self.header_frame, 
-            text="Отменить",
-            command=self.cancel_scan,
-            height=40,
-            width=100,
-            font=("Arial", 14),
-            fg_color="#e74c3c",
-            hover_color="#c0392b",
-            corner_radius=8,
-            state="disabled"
-        )
-        self.cancel_btn.pack(side="right", padx=(0, 10), pady=15)
+        self.create_header()
         
         # Панель анимации
-        self.connection_frame = ctk.CTkFrame(self, height=25, corner_radius=10, fg_color="#1a1a1a")
-        self.connection_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="ew")
-        self.connection_frame.grid_propagate(False)
-        self.grid_rowconfigure(1, weight=0, minsize=25)
+        self.create_animation_panel()
         
-        self.canvas = tk.Canvas(self.connection_frame, bg=self.connection_frame.cget("fg_color"), highlightthickness=0, height=35)
-        self.canvas.pack(fill="both", expand=False, padx=20, pady=10)
+        # Основные панели
+        self.create_main_panels()
         
-        # Переменные для анимации
+        # Статус бар
+        self.create_status_bar()
+        
+        # Инициализация переменных
+        self.scan_active = False
+        self.scan_cancel = False
+        self.marker = None
+        self.scan_thread = None
+        self.paths_data = []
+        self.subdomains_data = []
+        self.subdomain_queue = queue.Queue()
+        self.path_queue = queue.Queue()
+        self.gui_update_id = None
+        self.GUI_UPDATE_INTERVAL = 1000
+        self.paths_buffer = []
+        self.subdomains_buffer = []
+        self.last_paths_update = 0
+        self.last_subdomains_update = 0
         self.animation_pos = 0
         self.animation_id = None
         self.my_ip = "127.0.0.1"
@@ -107,104 +180,197 @@ class UltraSimpleScanner(ctk.CTk):
         self.animation_complete = False
         self.animation_running = False
         self.last_frame_time = 0
-        self.frame_duration = 1/30  # 30 FPS вместо 60
+        self.frame_duration = 1/30
+        self.static_items = []
+        self.particle_items = []
+        self.sort_column = {
+            "paths": "url",
+            "subdomains": "subdomain"
+        }
+        self.sort_direction = {
+            "paths": "asc",
+            "subdomains": "asc"
+        }
         
+        # Флаг для отслеживания движения слайдера
+        self.scale_slider_moving = False
+        
+        # Получаем наш IP
+        self.get_my_ip()
+        
+        # Запускаем обработчик очередей
+        self.after(100, self.process_queues)
+
+    def _(self, key):
+        """Метод для получения перевода по ключу"""
+        return self.translations[self.current_language].get(key, key)
+    
+    def create_header(self):
+        """Создает верхнюю панель с полем ввода и кнопками"""
+        self.header_frame = ctk.CTkFrame(self, corner_radius=int(10 * SCALING_FACTOR), fg_color="#2c3e50")
+        self.header_frame.grid(row=0, column=0, columnspan=2, padx=int(10 * SCALING_FACTOR), pady=int(10 * SCALING_FACTOR), sticky="nsew")
+        
+        self.target_entry = ctk.CTkEntry(
+            self.header_frame, 
+            placeholder_text=self._("target_placeholder"),
+            width=int(400 * SCALING_FACTOR),
+            height=ENTRY_HEIGHT,
+            font=("Arial", int(16 * SCALING_FACTOR)),
+            corner_radius=int(8 * SCALING_FACTOR)
+        )
+        self.target_entry.pack(side="left", padx=int(20 * SCALING_FACTOR), pady=int(15 * SCALING_FACTOR), fill="x", expand=True)
+        self.target_entry.bind("<Return>", self.start_scan)
+        
+        self.scan_btn = ctk.CTkButton(
+            self.header_frame, 
+            text=self._("scan_button"),
+            command=self.start_scan,
+            height=ENTRY_HEIGHT,
+            width=BUTTON_WIDTH,
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
+            fg_color="#27ae60",
+            hover_color="#2ecc71",
+            corner_radius=int(8 * SCALING_FACTOR)
+        )
+        self.scan_btn.pack(side="right", padx=int(20 * SCALING_FACTOR), pady=int(15 * SCALING_FACTOR))
+        
+        self.cancel_btn = ctk.CTkButton(
+            self.header_frame, 
+            text=self._("cancel_button"),
+            command=self.cancel_scan,
+            height=ENTRY_HEIGHT,
+            width=int(100 * SCALING_FACTOR),
+            font=("Arial", int(14 * SCALING_FACTOR)),
+            fg_color="#e74c3c",
+            hover_color="#c0392b",
+            corner_radius=int(8 * SCALING_FACTOR),
+            state="disabled"
+        )
+        self.cancel_btn.pack(side="right", padx=(0, int(10 * SCALING_FACTOR)), pady=int(15 * SCALING_FACTOR))
+
+    def create_animation_panel(self):
+        """Создает панель с анимацией подключения"""
+        self.connection_frame = ctk.CTkFrame(self, height=int(35 * SCALING_FACTOR), corner_radius=int(10 * SCALING_FACTOR), fg_color="#1a1a1a")
+        self.connection_frame.grid(row=1, column=0, columnspan=2, padx=int(10 * SCALING_FACTOR), pady=(0, int(10 * SCALING_FACTOR)), sticky="ew")
+        self.connection_frame.grid_propagate(False)
+        self.grid_rowconfigure(1, weight=0, minsize=int(25 * SCALING_FACTOR))
+        
+        self.canvas = tk.Canvas(self.connection_frame, bg=self.connection_frame.cget("fg_color"), highlightthickness=0, height=int(50 * SCALING_FACTOR))
+        self.canvas.pack(fill="both", expand=False, padx=int(20 * SCALING_FACTOR), pady=int(10 * SCALING_FACTOR))
+
+    def create_main_panels(self):
+        """Создает основные панели с информацией и картой"""
         # Левая панель
-        self.info_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.info_frame.grid(row=2, column=0, padx=(20, 10), pady=(0, 20), sticky="nsew")
+        self.info_frame = ctk.CTkFrame(self, corner_radius=int(10 * SCALING_FACTOR))
+        self.info_frame.grid(row=2, column=0, padx=(int(20 * SCALING_FACTOR), int(10 * SCALING_FACTOR)), pady=(0, int(20 * SCALING_FACTOR)), sticky="nsew")
         self.info_frame.grid_rowconfigure(0, weight=1)
         self.info_frame.grid_columnconfigure(0, weight=1)
         
         # Правая панель
-        self.map_frame = ctk.CTkFrame(self, corner_radius=10)
-        self.map_frame.grid(row=2, column=1, padx=(10, 20), pady=(0, 20), sticky="nsew")
+        self.map_frame = ctk.CTkFrame(self, corner_radius=int(10 * SCALING_FACTOR))
+        self.map_frame.grid(row=2, column=1, padx=(int(10 * SCALING_FACTOR), int(20 * SCALING_FACTOR)), pady=(0, int(20 * SCALING_FACTOR)), sticky="nsew")
         self.map_frame.grid_rowconfigure(0, weight=1)
         self.map_frame.grid_columnconfigure(0, weight=1)
         
         # Карта
         self.map_widget = tkintermapview.TkinterMapView(
             self.map_frame, 
-            corner_radius=8
+            corner_radius=int(8 * SCALING_FACTOR)
         )
-        self.map_widget.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.map_widget.grid(row=0, column=0, padx=int(10 * SCALING_FACTOR), pady=int(10 * SCALING_FACTOR), sticky="nsew")
         self.map_widget.set_position(55.7558, 37.6173)
         self.map_widget.set_zoom(3)
         
         # Контейнер для информации
-        self.tabview = ctk.CTkTabview(self.info_frame, corner_radius=8)
-        self.tabview.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.create_tabview()
+
+    def create_tabview(self):
+        """Создает вкладки с информацией"""
+        self.tabview = ctk.CTkTabview(self.info_frame, corner_radius=int(8 * SCALING_FACTOR))
+        self.tabview.grid(row=0, column=0, padx=int(10 * SCALING_FACTOR), pady=int(10 * SCALING_FACTOR), sticky="nsew")
         self.tabview.grid_columnconfigure(0, weight=1)
 
-        # Вкладки
-        self.tab_geo = self.tabview.add("Геолокация и порты")
-        self.tab_paths = self.tabview.add("Веб-пути")
-        self.tab_subdomains = self.tabview.add("Поддомены")
+        # Создаем вкладки
+        self.tab_geo = self.tabview.add(self._("geo_tab"))
+        self.tab_paths = self.tabview.add(self._("paths_tab"))
+        self.tab_subdomains = self.tabview.add(self._("subdomains_tab"))
 
-        self.tabview.set("Геолокация и порты")
+        self.tabview.set(self._("geo_tab"))
 
         # Вкладка геолокации
+        self.create_geo_tab()
+        
+        # Вкладка веб-путей
+        self.create_paths_tab()
+        
+        # Вкладка поддоменов
+        self.create_subdomains_tab()
+
+    def create_geo_tab(self):
+        """Создает вкладку геолокации"""
         self.tab_geo.grid_columnconfigure(0, weight=1)
         self.tab_geo.grid_rowconfigure(0, weight=0)
         self.tab_geo.grid_rowconfigure(1, weight=1)
 
-        geo_frame = ctk.CTkFrame(self.tab_geo, corner_radius=8)
-        geo_frame.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        geo_frame = ctk.CTkFrame(self.tab_geo, corner_radius=int(8 * SCALING_FACTOR))
+        geo_frame.grid(row=0, column=0, padx=int(5 * SCALING_FACTOR), pady=int(5 * SCALING_FACTOR), sticky="ew")
 
         ctk.CTkLabel(
             geo_frame, 
-            text="Геолокация",
-            font=("Arial", 14, "bold"),
+            text=self._("geo_location"),
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
             anchor="w"
-        ).pack(fill="x", padx=10, pady=(10, 5))
+        ).pack(fill="x", padx=int(10 * SCALING_FACTOR), pady=(int(10 * SCALING_FACTOR), int(5 * SCALING_FACTOR)))
 
         self.geo_text = ctk.CTkTextbox(
             geo_frame, 
-            height=150,
+            height=int(150 * SCALING_FACTOR),
             wrap="word",
-            font=("Arial", 13),
+            font=("Arial", int(13 * SCALING_FACTOR)),
             activate_scrollbars=False
         )
-        self.geo_text.pack(fill="x", padx=10, pady=(0, 10))
-        self.geo_text.insert("1.0", "Данные геолокации появятся здесь после сканирования")
+        self.geo_text.pack(fill="x", padx=int(10 * SCALING_FACTOR), pady=(0, int(10 * SCALING_FACTOR)))
+        self.geo_text.insert("1.0", self._("geo_location") + " " + self._("ready_status"))
         self.geo_text.configure(state="disabled")
 
         # Секция портов
-        ports_frame = ctk.CTkFrame(self.tab_geo, corner_radius=8)
-        ports_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        ports_frame = ctk.CTkFrame(self.tab_geo, corner_radius=int(8 * SCALING_FACTOR))
+        ports_frame.grid(row=1, column=0, padx=int(5 * SCALING_FACTOR), pady=int(5 * SCALING_FACTOR), sticky="nsew")
         ports_frame.grid_rowconfigure(0, weight=1)
         ports_frame.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             ports_frame, 
-            text="Открытые порты",
-            font=("Arial", 13, "bold"),
+            text=self._("open_ports"),
+            font=("Arial", int(13 * SCALING_FACTOR), "bold"),
             anchor="w"
-        ).pack(fill="x", padx=10, pady=(10, 5))
+        ).pack(fill="x", padx=int(10 * SCALING_FACTOR), pady=(int(10 * SCALING_FACTOR), int(5 * SCALING_FACTOR)))
 
         self.ports_text = ctk.CTkTextbox(
             ports_frame, 
             wrap="word",
-            font=("Consolas", 14),
+            font=("Consolas", int(14 * SCALING_FACTOR)),
             activate_scrollbars=True
         )
-        self.ports_text.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self.ports_text.insert("1.0", "Результаты сканирования портов появятся здесь")
+        self.ports_text.pack(fill="both", expand=True, padx=int(10 * SCALING_FACTOR), pady=(0, int(10 * SCALING_FACTOR)))
+        self.ports_text.insert("1.0", self._("open_ports") + " " + self._("ready_status"))
         self.ports_text.configure(state="disabled")
 
-        # Вкладка веб-путей (ИСПРАВЛЕНО: изменен порядок колонок)
+    def create_paths_tab(self):
+        """Создает вкладку с веб-путями"""
         self.tab_paths.grid_columnconfigure(0, weight=1)
         self.tab_paths.grid_rowconfigure(0, weight=0)
         self.tab_paths.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             self.tab_paths, 
-            text="Доступные веб-пути",
-            font=("Arial", 14, "bold"),
+            text=self._("available_paths"),
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
             anchor="w"
-        ).grid(row=0, column=0, padx=15, pady=(10, 5), sticky="w")
+        ).grid(row=0, column=0, padx=int(15 * SCALING_FACTOR), pady=(int(10 * SCALING_FACTOR), int(5 * SCALING_FACTOR)), sticky="w")
 
-        tree_frame = ctk.CTkFrame(self.tab_paths, corner_radius=8, fg_color="#2a2d2e")
-        tree_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        tree_frame = ctk.CTkFrame(self.tab_paths, corner_radius=int(8 * SCALING_FACTOR), fg_color=BG_COLOR)
+        tree_frame.grid(row=1, column=0, padx=int(10 * SCALING_FACTOR), pady=(0, int(10 * SCALING_FACTOR)), sticky="nsew")
         tree_frame.grid_columnconfigure(0, weight=1)
         tree_frame.grid_rowconfigure(0, weight=1)
 
@@ -213,47 +379,46 @@ class UltraSimpleScanner(ctk.CTk):
         style.theme_use("clam")
         
         style.configure("Treeview", 
-                        background="#292828",
-                        foreground="white",
-                        rowheight=30,
-                        fieldbackground="#2a2d2e",
-                        font=('Arial', 12),
-                        borderwidth=0,
-                        highlightthickness=0,
-                        relief="flat")
+                       background=TREEVIEW_BG,
+                       foreground=TREEVIEW_FG,
+                       rowheight=TABLE_ROW_HEIGHT,
+                       fieldbackground=TREEVIEW_FIELD_BG,
+                       font=('Arial', TABLE_FONT_SIZE),
+                       borderwidth=0,
+                       highlightthickness=0,
+                       relief="flat")
         
         style.configure("Treeview.Heading", 
-                        background="#1e1e1e", 
-                        foreground="#fff",
-                        font=('Arial', 12, 'bold'),
-                        padding=(5, 5),
+                        background=HEADER_BG, 
+                        foreground=HEADER_FG,
+                        font=TABLE_HEADER_FONT,
+                        padding=(int(5 * SCALING_FACTOR), int(5 * SCALING_FACTOR)),
                         relief="flat",
                         borderwidth=0)
         
         style.map("Treeview", 
-                  background=[('selected', '#22559b')],
-                  foreground=[('selected', 'white')])
+                  background=[('selected', SELECTION_BG)],
+                  foreground=[('selected', SELECTION_FG)])
         
         style.map("Treeview.Heading", 
-                  background=[('active', '#3d3d3d')])
+                  background=[('active', "#3d3d3d")])
 
-        # Treeview для путей (ИСПРАВЛЕНО: изменен порядок колонок)
+        # Treeview для путей
         self.paths_tree = ttk.Treeview(
             tree_frame,
-            columns=("url", "status", "type"),  # Поменяли местами status и url
+            columns=("url", "status", "type"),
             show="headings",
             selectmode="browse",
             style="Treeview"
         )
         
-        # Измененный порядок колонок: URL, Статус, Тип
-        self.paths_tree.heading("url", text="URL", anchor="w", command=lambda: self.sort_treeview("url", "paths"))
-        self.paths_tree.heading("status", text="Статус", anchor="w", command=lambda: self.sort_treeview("status", "paths"))
-        self.paths_tree.heading("type", text="Тип", anchor="w", command=lambda: self.sort_treeview("type", "paths"))
+        self.paths_tree.heading("url", text=self._("url_column"), anchor="w", command=lambda: self.sort_treeview("url", "paths"))
+        self.paths_tree.heading("status", text=self._("status_column"), anchor="w", command=lambda: self.sort_treeview("status", "paths"))
+        self.paths_tree.heading("type", text=self._("type_column"), anchor="w", command=lambda: self.sort_treeview("type", "paths"))
         
-        self.paths_tree.column("url", width=350, minwidth=250, stretch=True)
-        self.paths_tree.column("status", width=100, minwidth=90, stretch=False)
-        self.paths_tree.column("type", width=100, minwidth=80, stretch=False)
+        self.paths_tree.column("url", width=COLUMN_WIDTHS['paths']['url'], minwidth=MIN_COLUMN_WIDTHS['paths']['url'], stretch=True)
+        self.paths_tree.column("status", width=COLUMN_WIDTHS['paths']['status'], minwidth=MIN_COLUMN_WIDTHS['paths']['status'], stretch=False)
+        self.paths_tree.column("type", width=COLUMN_WIDTHS['paths']['type'], minwidth=MIN_COLUMN_WIDTHS['paths']['type'], stretch=False)
         
         scrollbar = ttk.Scrollbar(
             tree_frame,
@@ -268,23 +433,24 @@ class UltraSimpleScanner(ctk.CTk):
         self.paths_tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         
         self.paths_context_menu = tk.Menu(self, tearoff=0)
-        self.paths_context_menu.add_command(label="Копировать", command=lambda: self.copy_treeview_data(self.paths_tree))
+        self.paths_context_menu.add_command(label=self._("copy_button"), command=lambda: self.copy_treeview_data(self.paths_tree))
         self.paths_tree.bind("<Button-3>", self.show_context_menu)
-        
-        # Вкладка поддоменов
+
+    def create_subdomains_tab(self):
+        """Создает вкладку с поддоменами"""
         self.tab_subdomains.grid_columnconfigure(0, weight=1)
         self.tab_subdomains.grid_rowconfigure(0, weight=0)
         self.tab_subdomains.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             self.tab_subdomains, 
-            text="Найденные поддомены",
-            font=("Arial", 14, "bold"),
+            text=self._("found_subdomains"),
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
             anchor="w"
-        ).grid(row=0, column=0, padx=15, pady=(10, 5), sticky="w")
+        ).grid(row=0, column=0, padx=int(15 * SCALING_FACTOR), pady=(int(10 * SCALING_FACTOR), int(5 * SCALING_FACTOR)), sticky="w")
 
-        subdomains_frame = ctk.CTkFrame(self.tab_subdomains, corner_radius=8, fg_color="#2a2d2e")
-        subdomains_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        subdomains_frame = ctk.CTkFrame(self.tab_subdomains, corner_radius=int(8 * SCALING_FACTOR), fg_color=BG_COLOR)
+        subdomains_frame.grid(row=1, column=0, padx=int(10 * SCALING_FACTOR), pady=(0, int(10 * SCALING_FACTOR)), sticky="nsew")
         subdomains_frame.grid_columnconfigure(0, weight=1)
         subdomains_frame.grid_rowconfigure(0, weight=1)
 
@@ -297,15 +463,19 @@ class UltraSimpleScanner(ctk.CTk):
             style="Treeview"
         )
         
-        self.subdomains_tree.heading("subdomain", text="Поддомен", anchor="w", command=lambda: self.sort_treeview("subdomain", "subdomains"))
-        self.subdomains_tree.heading("ip", text="IP-адрес", anchor="w", command=lambda: self.sort_treeview("ip", "subdomains"))
-        self.subdomains_tree.heading("status", text="Статус", anchor="w", command=lambda: self.sort_treeview("status", "subdomains"))
-        self.subdomains_tree.heading("length", text="Длина", anchor="w", command=lambda: self.sort_treeview("length", "subdomains"))
+        self.subdomains_tree.heading("subdomain", text=self._("subdomain_column"), anchor="w", command=lambda: self.sort_treeview("subdomain", "subdomains"))
+        self.subdomains_tree.heading("ip", text=self._("ip_column"), anchor="w", command=lambda: self.sort_treeview("ip", "subdomains"))
+        self.subdomains_tree.heading("status", text=self._("status_column"), anchor="w", command=lambda: self.sort_treeview("status", "subdomains"))
+        self.subdomains_tree.heading("length", text=self._("length_column"), anchor="w", command=lambda: self.sort_treeview("length", "subdomains"))
         
-        self.subdomains_tree.column("subdomain", width=180, minwidth=150, stretch=True)
-        self.subdomains_tree.column("ip", width=140, minwidth=120, stretch=False)
-        self.subdomains_tree.column("status", width=70, minwidth=60, stretch=False)
-        self.subdomains_tree.column("length", width=80, minwidth=70, stretch=False)
+        self.subdomains_tree.column("subdomain", width=COLUMN_WIDTHS['subdomains']['subdomain'], 
+                                  minwidth=MIN_COLUMN_WIDTHS['subdomains']['subdomain'], stretch=True)
+        self.subdomains_tree.column("ip", width=COLUMN_WIDTHS['subdomains']['ip'], 
+                                   minwidth=MIN_COLUMN_WIDTHS['subdomains']['ip'], stretch=True)
+        self.subdomains_tree.column("status", width=COLUMN_WIDTHS['subdomains']['status'], 
+                                   minwidth=MIN_COLUMN_WIDTHS['subdomains']['status'], stretch=False)
+        self.subdomains_tree.column("length", width=COLUMN_WIDTHS['subdomains']['length'], 
+                                   minwidth=MIN_COLUMN_WIDTHS['subdomains']['length'], stretch=False)
         
         subdomains_scrollbar = ttk.Scrollbar(
             subdomains_frame,
@@ -318,231 +488,57 @@ class UltraSimpleScanner(ctk.CTk):
         subdomains_scrollbar.grid(row=0, column=1, sticky="ns", padx=0, pady=0)
         
         self.subdomains_context_menu = tk.Menu(self, tearoff=0)
-        self.subdomains_context_menu.add_command(label="Копировать", command=lambda: self.copy_treeview_data(self.subdomains_tree))
+        self.subdomains_context_menu.add_command(label=self._("copy_button"), command=lambda: self.copy_treeview_data(self.subdomains_tree))
         self.subdomains_tree.bind("<Button-3>", self.show_context_menu)
-        
-        # Переменные для сортировки
-        self.sort_column = {
-            "paths": "url",
-            "subdomains": "subdomain"
-        }
-        self.sort_direction = {
-            "paths": "asc",
-            "subdomains": "asc"
-        }
-        
-        # Статус бар
 
-
-
-
+    def create_status_bar(self):
+        """Создает статус бар"""
         self.status_frame = ctk.CTkFrame(self, fg_color="#333333", corner_radius=0)
         self.status_frame.grid(row=3, column=0, columnspan=2, sticky="ew")
         self.status_frame.grid_columnconfigure(0, weight=1)
         
-        self.status_var = tk.StringVar(value="Готов к сканированию")
+        self.status_var = tk.StringVar(value=self._("ready_status"))
         self.status_bar = ctk.CTkLabel(
             self.status_frame, 
             textvariable=self.status_var,
             anchor="w",
-            font=("Arial", 12),
+            font=("Arial", int(12 * SCALING_FACTOR)),
             fg_color="transparent",
             corner_radius=0,
-            padx=20
+            padx=int(20 * SCALING_FACTOR)
         )
         self.status_bar.grid(row=0, column=0, sticky="ew")
         
-        # Кнопка информации (стилизованная под часть статус-бара)
+        # Кнопка настроек
+        self.settings_btn = ctk.CTkButton(
+            self.status_frame,
+            text="⚙",
+            width=int(30 * SCALING_FACTOR),
+            height=int(30 * SCALING_FACTOR),
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
+            fg_color="transparent",
+            hover_color="#555555",
+            text_color="#ffffff",
+            command=self.show_settings,
+            corner_radius=0
+        )
+        self.settings_btn.grid(row=0, column=1, padx=(0, int(5 * SCALING_FACTOR)), sticky="e")
+        
+        # Кнопка информации
         self.info_btn = ctk.CTkButton(
             self.status_frame,
             text="ℹ",
-            width=30,
-            height=30,
-            font=("Arial", 14, "bold"),
+            width=int(30 * SCALING_FACTOR),
+            height=int(30 * SCALING_FACTOR),
+            font=("Arial", int(14 * SCALING_FACTOR), "bold"),
             fg_color="transparent",
             hover_color="#555555",
             text_color="#ffffff",
             command=self.show_info,
             corner_radius=0
         )
-        self.info_btn.grid(row=0, column=1, padx=(0, 10), sticky="e")
-        
-        # Переменные
-        self.scan_active = False
-        self.scan_cancel = False
-        self.marker = None
-        self.scan_thread = None
-        self.paths_data = []
-        self.subdomains_data = []
-        
-        # Очередь для результатов
-        self.subdomain_queue = queue.Queue()
-        self.path_queue = queue.Queue()
-        
-        # Таймер для обновления GUI
-        self.gui_update_id = None
-        self.GUI_UPDATE_INTERVAL = 1000  # Обновление раз в секунду
-        
-        # Буферы для накопления результатов
-        self.paths_buffer = []
-        self.subdomains_buffer = []
-        
-        # Время последнего обновления
-        self.last_paths_update = 0
-        self.last_subdomains_update = 0
-        
-        # Определяем наш IP
-        self.get_my_ip()
-        
-        # Запускаем обработчик очередей
-        self.after(100, self.process_queues)
-        
-        # Статические элементы анимации
-        self.static_items = []
-        self.particle_items = []
-    def show_info(self):
-        """Показывает информационное окно о программе"""
-        info_window = ctk.CTkToplevel(self)
-        info_window.title("О программе WebSec")
-        info_window.geometry("650x500")
-        info_window.resizable(False, False)
+        self.info_btn.grid(row=0, column=2, padx=(0, int(10 * SCALING_FACTOR)), sticky="e")
 
-
-
-
-
-        info_window.transient(self)  # Устанавливаем родительское окно
-        info_window.grab_set()  # Захватываем фокус
-        info_window.lift()  # Поднимаем окно поверх всех
-        info_window.focus_force()  # Принудительно устанавливаем фокус
-        
-        # Основной фрейм
-        main_frame = ctk.CTkFrame(info_window, corner_radius=10)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        # Фрейм для верхней части (картинка + заголовок)
-        top_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        top_frame.pack(fill="x", padx=10, pady=(10, 0))
-        
-        # Загружаем и размещаем картинку с прозрачностью
-        try:
-            # Используем PIL для загрузки изображения с альфа-каналом
-            from PIL import Image
-            pil_image = Image.open("logo.png").convert("RGBA")
-            
-            # Создаем CTkImage с прозрачностью
-            logo_img = ctk.CTkImage(
-                light_image=pil_image,
-                dark_image=pil_image,  # Используем то же изображение для темной темы
-                size=(100, 100)
-            )
-            
-            # Создаем CTkLabel с прозрачным фоном
-            img_label = ctk.CTkLabel(
-                top_frame, 
-                image=logo_img,
-                text="",  # Пустой текст
-                fg_color="transparent"  # Прозрачный фон
-            )
-            img_label.pack(side="left", padx=(0, 20))
-            
-        except Exception as e:
-            print(f"Не удалось загрузить изображение: {e}")
-            # Заглушка если картинка не загрузилась
-            img_label = ctk.CTkLabel(
-                top_frame, 
-                text="🌐", 
-                font=("Arial", 50),
-                fg_color="transparent"
-            )
-            img_label.pack(side="left", padx=(0, 20))
-        
-        # Заголовок рядом с картинкой
-        title_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
-        title_frame.pack(side="left", fill="both", expand=True)
-        
-        title_label = ctk.CTkLabel(
-            title_frame,
-            text="WebSec",
-            font=("Arial", 24, "bold"),
-            anchor="w"
-        )
-        title_label.pack(pady=(10, 0))
-        
-        subtitle_label = ctk.CTkLabel(
-            title_frame,
-            text="Сканер безопасности веб-ресурсов",
-            font=("Arial", 16),
-            anchor="w"
-        )
-        subtitle_label.pack()
-        
-        # Разделительная линия
-        ctk.CTkFrame(
-            main_frame, 
-            height=2, 
-            fg_color="#333333"
-        ).pack(fill="x", padx=20, pady=10)
-        
-        # Информация о программе
-        info_text = """
-    WebSec - это мощный инструмент для анализа безопасности веб-ресурсов, 
-    который позволяет:
-        
-    • Определять геолокацию сервера
-    • Сканировать открытые порты
-    • Находить доступные поддомены
-    • Проверять доступные веб-пути
-        
-    Программа использует открытые API для определения геолокации
-    и многопоточное сканирование для ускорения проверок.
-        
-    Версия: 0.3
-    Разработчик: Scadane
-    """
-        info_label = ctk.CTkLabel(
-            main_frame,
-            text=info_text,
-            font=("Arial", 14),
-            justify="left",
-            anchor="w"
-        )
-        info_label.pack(fill="x", padx=20, pady=10)
-        
-        # Ссылка на GitHub
-        github_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        github_frame.pack(fill="x", padx=20, pady=(10, 15))
-        
-        ctk.CTkLabel(
-            github_frame,
-            text="GitHub:",
-            font=("Arial", 14, "bold"),
-            anchor="w"
-        ).pack(side="left", padx=(0, 10))
-        
-        github_link = ctk.CTkLabel(
-            github_frame,
-            text="https://github.com/Scadane/WebSec",
-            font=("Arial", 14, "underline"),
-            text_color="#3498db",
-            cursor="hand2",
-            anchor="w"
-        )
-        github_link.pack(side="left", fill="x", expand=True)
-        github_link.bind("<Button-1>", lambda e: self.open_github())
-        
-        # Кнопка закрытия
-        close_btn = ctk.CTkButton(
-            main_frame,
-            text="Закрыть",
-            command=info_window.destroy,
-            width=120,
-            height=35,
-            font=("Arial", 14),
-            fg_color="#2c3e50",
-            hover_color="#34495e"
-        )
-        close_btn.pack(pady=(10, 15))
     def setup_animation(self):
         """Создаем статичные элементы анимации"""
         self.canvas.delete("all")
@@ -553,26 +549,41 @@ class UltraSimpleScanner(ctk.CTk):
             return
             
         # Рисуем линию подключения
-        line = self.canvas.create_line(50, height//2, width-50, height//2, fill="#333", width=2, dash=(4, 2))
+        line = self.canvas.create_line(
+            int(50 * SCALING_FACTOR), height//2, 
+            width-int(50 * SCALING_FACTOR), height//2, 
+            fill="#333", width=int(2 * SCALING_FACTOR), dash=(4, 2))
         self.static_items.append(line)
         
         # Рисуем точки подключения
-        dot1 = self.canvas.create_oval(45, height//2-3, 55, height//2+3, fill="#3498db", outline="")
-        dot2 = self.canvas.create_oval(width-55, height//2-3, width-45, height//2+3, fill="#e74c3c", outline="")
+        dot1 = self.canvas.create_oval(
+            int(45 * SCALING_FACTOR), height//2-int(3 * SCALING_FACTOR),
+            int(55 * SCALING_FACTOR), height//2+int(3 * SCALING_FACTOR),
+            fill="#3498db", outline="")
+        dot2 = self.canvas.create_oval(
+            width-int(55 * SCALING_FACTOR), height//2-int(3 * SCALING_FACTOR),
+            width-int(45 * SCALING_FACTOR), height//2+int(3 * SCALING_FACTOR),
+            fill="#e74c3c", outline="")
         self.static_items.extend([dot1, dot2])
         
         # Создаем текст для IP
-        self.my_ip_text = self.canvas.create_text(10, height//2-10, text=f"{self.my_ip}", 
-                              anchor="w", fill="#3498db", font=("Arial", 12))
-        self.server_ip_text = self.canvas.create_text(width-10, height//2-10, text=f"{self.hidden_ip}", 
-                              anchor="e", fill="#e74c3c", font=("Arial", 12))
+        self.my_ip_text = self.canvas.create_text(
+            int(10 * SCALING_FACTOR), height//2-int(10 * SCALING_FACTOR), 
+            text=f"{self.my_ip}", 
+            anchor="w", fill="#3498db", font=("Arial", int(12 * SCALING_FACTOR)))
+        self.server_ip_text = self.canvas.create_text(
+            width-int(10 * SCALING_FACTOR), height//2-int(10 * SCALING_FACTOR), 
+            text=f"{self.hidden_ip}", 
+            anchor="e", fill="#e74c3c", font=("Arial", int(12 * SCALING_FACTOR)))
         self.static_items.extend([self.my_ip_text, self.server_ip_text])
         
         # Текст статуса
-        self.status_text = self.canvas.create_text(width//2, height//2+10, text="", 
-                                  fill="#2ecc71", font=("Arial", 10, "bold"))
+        self.status_text = self.canvas.create_text(
+            width//2, height//2+int(10 * SCALING_FACTOR), 
+            text="", 
+            fill="#2ecc71", font=("Arial", int(10 * SCALING_FACTOR), "bold"))
         self.static_items.append(self.status_text)
-        
+
     def process_queues(self):
         """Обработка очередей результатов"""
         # Обрабатываем поддомены
@@ -643,7 +654,7 @@ class UltraSimpleScanner(ctk.CTk):
         
         self.clipboard_clear()
         self.clipboard_append(text_to_copy.strip())
-        self.status_var.set("Данные скопированы в буфер обмена")
+        self.status_var.set(self._("data_copied"))
 
     def sort_treeview(self, column, tree_type):
         if self.sort_column[tree_type] == column:
@@ -679,7 +690,7 @@ class UltraSimpleScanner(ctk.CTk):
     
     def update_sort_indicators(self, tree, tree_type):
         if tree_type == "paths":
-            columns = ["url", "status", "type"]  # Обновлено для нового порядка
+            columns = ["url", "status", "type"]
         else:
             columns = ["subdomain", "ip", "status", "length"]
         
@@ -700,26 +711,21 @@ class UltraSimpleScanner(ctk.CTk):
             item = self.paths_tree.item(selected)
             values = item['values']
             if values:
-                # Обновленный порядок: (url, status, type)
-                self.status_var.set(f"Выбран путь: {values[0]} (Статус: {values[1]})")
+                self.status_var.set(self._("selected_path").format(values[0], values[1]))
     
     def update_paths_table(self, data):
-        # Очищаем только при первом обновлении
         if self.paths_tree.get_children():
             self.paths_tree.delete(*self.paths_tree.get_children())
         
-        # Добавляем новые данные (новый порядок: url, status, type)
         for url, status, path_type in data:
             self.paths_tree.insert("", "end", values=(url, status, path_type))
         
         self.update_sort_indicators(self.paths_tree, "paths")
     
     def update_subdomains_table(self, data):
-        # Очищаем только при первом обновлении
         if self.subdomains_tree.get_children():
             self.subdomains_tree.delete(*self.subdomains_tree.get_children())
         
-        # Добавляем новые данные
         for subdomain, ip, status, length in data:
             self.subdomains_tree.insert("", "end", values=(subdomain, ip, status, length))
         
@@ -741,7 +747,6 @@ class UltraSimpleScanner(ctk.CTk):
         self.last_subdomains_update = 0
         self.sort_column["subdomains"] = "subdomain"
         self.sort_direction["subdomains"] = "asc"
-        self.update_sort_indicators(self.subdomains_tree, "subdomains")
     
     def get_my_ip(self):
         try:
@@ -761,7 +766,6 @@ class UltraSimpleScanner(ctk.CTk):
         if self.animation_id:
             self.after_cancel(self.animation_id)
         
-        # Сбрасываем анимацию
         self.animation_pos = 0
         self.bit_particles = []
         self.particle_items = []
@@ -769,10 +773,7 @@ class UltraSimpleScanner(ctk.CTk):
         self.animation_running = True
         self.last_frame_time = time.time()
         
-        # Создаем статичные элементы
         self.setup_animation()
-        
-        # Запускаем анимацию
         self.animate_connection()
     
     def animate_connection(self):
@@ -783,7 +784,6 @@ class UltraSimpleScanner(ctk.CTk):
         current_time = time.time()
         elapsed = current_time - self.last_frame_time
         
-        # Пропускаем кадры, если отстаем
         if elapsed < self.frame_duration:
             self.animation_id = self.after(1, self.animate_connection)
             return
@@ -795,11 +795,9 @@ class UltraSimpleScanner(ctk.CTk):
             self.animation_id = self.after(1, self.animate_connection)
             return
         
-        # Обновляем текст IP сервера
         server_ip_display = self.get_revealed_ip()
         self.canvas.itemconfig(self.server_ip_text, text=f"{server_ip_display}")
         
-        # Генерируем "биты данных" (уменьшено количество)
         if self.scan_active and random.random() < 0.2 and len(self.bit_particles) < 15:
             self.bit_particles.append({
                 'pos': 0,
@@ -808,25 +806,18 @@ class UltraSimpleScanner(ctk.CTk):
                 'color': self.random_green_color()
             })
         
-        # Анимируем "биты данных"
         particles_to_remove = []
         for i, bit in enumerate(self.bit_particles):
-            # Обновляем позицию
             bit['pos'] += bit['speed']
-            
-            # Рассчитываем позицию
             x = 50 + (width - 100) * bit['pos']
             
-            # Рисуем частицу
             if i < len(self.particle_items):
-                # Обновляем существующую частицу
                 self.canvas.coords(
                     self.particle_items[i],
                     x - bit['size'], height//2 - bit['size'],
                     x + bit['size'], height//2 + bit['size']
                 )
             else:
-                # Создаем новую частицу
                 particle = self.canvas.create_oval(
                     x - bit['size'], height//2 - bit['size'],
                     x + bit['size'], height//2 + bit['size'],
@@ -834,11 +825,9 @@ class UltraSimpleScanner(ctk.CTk):
                 )
                 self.particle_items.append(particle)
             
-            # Если частица достигла конца, помечаем для удаления
             if bit['pos'] >= 1:
                 particles_to_remove.append(bit)
         
-        # Удаляем частицы, которые достигли конца
         for bit in particles_to_remove:
             idx = self.bit_particles.index(bit)
             self.bit_particles.remove(bit)
@@ -846,22 +835,16 @@ class UltraSimpleScanner(ctk.CTk):
                 self.canvas.delete(self.particle_items[idx])
                 self.particle_items.pop(idx)
         
-        # Обновляем раскрытие IP
         if self.reveal_progress < self.reveal_steps:
             self.reveal_progress += 0.05
         
-        # Если сканирование завершено
         if not self.scan_active and not self.animation_complete:
-            # Запускаем финальную анимацию
             self.animation_complete = True
-            status_text = "✓ Сканирование отменено" if self.scan_cancel else "✓ Сканирование завершено"
+            status_text = f"✓ {self._('scan_canceled')}" if self.scan_cancel else f"✓ {self._('scan_completed')}"
             self.canvas.itemconfig(self.status_text, text=status_text,
                                   fill="#e74c3c" if self.scan_cancel else "#2ecc71")
         
-        # Обновляем время последнего кадра
         self.last_frame_time = current_time
-        
-        # Продолжаем анимацию
         self.animation_id = self.after(1, self.animate_connection)
     
     def random_green_color(self):
@@ -873,7 +856,7 @@ class UltraSimpleScanner(ctk.CTk):
     def get_revealed_ip(self):
         if self.reveal_progress >= self.reveal_steps:
             return self.server_ip
-        
+
         total_chars = len(self.server_ip)
         revealed_chars = min(total_chars, int(total_chars * (self.reveal_progress / self.reveal_steps)))
         revealed = self.server_ip[:revealed_chars]
@@ -889,20 +872,20 @@ class UltraSimpleScanner(ctk.CTk):
         if ":" in target: 
             target, port = target.split(":")
         if not target:
-            self.status_var.set("Ошибка: введите домен или IP")
+            self.status_var.set(self._("error_target"))
             return
         
         try:
             if not self.is_valid_domain(target):
                 ipaddress.ip_address(target)
         except ValueError:
-            self.status_var.set("Ошибка: некорректный IP или домен")
+            self.status_var.set(self._("error_invalid"))
             return
         
         self.clear_results()
         self.scan_active = True
         self.scan_cancel = False
-        self.status_var.set("Сканирование начато...")
+        self.status_var.set(self._("scanning_status"))
         self.scan_btn.configure(state="disabled", fg_color="#7f8c8d")
         self.cancel_btn.configure(state="normal")
         self.reveal_progress = 0
@@ -910,17 +893,16 @@ class UltraSimpleScanner(ctk.CTk):
         try:
             self.server_ip = socket.gethostbyname(target)
         except:
-            self.server_ip = "Неизвестен"
+            self.server_ip = self._("unknown")
         
         self.start_animation()
-        
         self.scan_thread = threading.Thread(target=self.run_scan, args=(target, port), daemon=True)
         self.scan_thread.start()
     
     def cancel_scan(self):
         if self.scan_active:
             self.scan_cancel = True
-            self.status_var.set("Отмена сканирования...")
+            self.status_var.set(self._("scan_canceled"))
             self.cancel_btn.configure(state="disabled")
     
     def is_valid_domain(self, domain):
@@ -938,12 +920,9 @@ class UltraSimpleScanner(ctk.CTk):
         
         self.clear_paths_table()
         self.clear_subdomains_table()
-        
-        # Очищаем данные
         self.paths_data = []
         self.subdomains_data = []
         
-        # Очищаем очереди
         while not self.subdomain_queue.empty():
             try:
                 self.subdomain_queue.get_nowait()
@@ -956,14 +935,12 @@ class UltraSimpleScanner(ctk.CTk):
             except queue.Empty:
                 pass
         
-        # Останавливаем анимацию
         self.animation_running = False
         if self.animation_id:
             self.after_cancel(self.animation_id)
             self.animation_id = None
             self.canvas.delete("all")
         
-        # Очистка карты
         if hasattr(self, 'map_markers'):
             for marker in self.map_markers:
                 self.map_widget.delete(marker)
@@ -976,33 +953,33 @@ class UltraSimpleScanner(ctk.CTk):
     def run_scan(self, target, port):
         try:
             # Этап 1: Геолокация
-            self.status_var.set("Определение геолокации...")
+            self.status_var.set(self._("geo_location") + "...")
             self.get_geolocation(target)
             if self.scan_cancel: return
             self.reveal_progress = 5
             
             # Этап 2: Сканирование портов
-            self.status_var.set("Сканирование портов...")
+            self.status_var.set(self._("port_scanning"))
             self.scan_ports(target)
             if self.scan_cancel: return
             self.reveal_progress = 10
             
             # Этап 3: Поиск поддоменов
-            self.status_var.set("Поиск поддоменов...")
+            self.status_var.set(self._("subdomain_scanning"))
             self.scan_subdomains(target)
             if self.scan_cancel: return
             self.reveal_progress = 12
             
             # Этап 4: Проверка путей
-            self.status_var.set("Проверка веб-путей...")
+            self.status_var.set(self._("webpath_scanning"))
             self.check_web_paths(target, port)
             if self.scan_cancel: return
             self.reveal_progress = 15
             
-            self.status_var.set("Сканирование завершено!")
+            self.status_var.set(self._("scan_completed"))
             
         except Exception as e:
-            self.status_var.set(f"Ошибка: {str(e)}")
+            self.status_var.set(f"{self._('error')}: {str(e)}")
         finally:
             time.sleep(0.7)
             self.scan_active = False
@@ -1018,23 +995,21 @@ class UltraSimpleScanner(ctk.CTk):
             self.geo_text.configure(state="normal")
             self.geo_text.delete("1.0", "end")
             
-            geo_info = (
-                f"IP: {data.get('ip', 'N/A')}\n"
-                f"Город: {data.get('city', 'N/A')}\n"
-                f"Регион: {data.get('region', 'N/A')}\n"
-                f"Страна: {data.get('country', 'N/A')}\n"
-                f"Провайдер: {data.get('org', 'N/A')}\n"
+            geo_info = self._("geo_info").format(
+                ip=data.get('ip', 'N/A'),
+                city=data.get('city', 'N/A'),
+                region=data.get('region', 'N/A'),
+                country=data.get('country', 'N/A'),
+                org=data.get('org', 'N/A')
             )
             
             self.geo_text.insert("1.0", geo_info)
             self.geo_text.configure(state="disabled")
             
-            # Получаем координаты сервера
             server_lat, server_lon = None, None
             if 'loc' in data:
                 server_lat, server_lon = map(float, data['loc'].split(','))
             
-            # Получаем координаты нашего IP
             my_lat, my_lon = None, None
             try:
                 my_response = requests.get(f"https://ipinfo.io/{self.my_ip}/json", timeout=5)
@@ -1044,7 +1019,6 @@ class UltraSimpleScanner(ctk.CTk):
             except:
                 pass
             
-            # Очищаем предыдущие маркеры
             if hasattr(self, 'map_markers'):
                 for marker in self.map_markers:
                     self.map_widget.delete(marker)
@@ -1053,38 +1027,34 @@ class UltraSimpleScanner(ctk.CTk):
             
             self.map_markers = []
             
-            # Добавляем маркер сервера
             if server_lat and server_lon:
                 server_marker = self.map_widget.set_marker(
                     server_lat, 
                     server_lon, 
-                    text=f"Сервер: {data.get('ip', 'Unknown')}",
+                    text=f"{self._('server')}: {data.get('ip', self._('unknown'))}",
                     marker_color_circle="#e74c3c",
                     marker_color_outside="#c0392b",
                     text_color="#e74c3c"
                 )
                 self.map_markers.append(server_marker)
             
-            # Добавляем маркер нашего IP
             if my_lat and my_lon:
                 my_marker = self.map_widget.set_marker(
                     my_lat, 
                     my_lon, 
-                    text=f"Ваш IP: {self.my_ip}",
+                    text=f"{self._('your_ip')}: {self.my_ip}",
                     marker_color_circle="#3498db",
                     marker_color_outside="#2980b9",
                     text_color="#3498db"
                 )
                 self.map_markers.append(my_marker)
             
-            # Если есть оба маркера, рисуем линию
             if len(self.map_markers) == 2:
                 self.connection_line = self.map_widget.set_path([
                     (my_lat, my_lon),
                     (server_lat, server_lon)
                 ], color="#2ecc71", width=2)
             
-            # Устанавливаем масштаб
             if server_lat and server_lon and my_lat and my_lon:
                 avg_lat = (server_lat + my_lat) / 2
                 avg_lon = (server_lon + my_lon) / 2
@@ -1101,7 +1071,7 @@ class UltraSimpleScanner(ctk.CTk):
             
         except Exception as e:
             self.geo_text.configure(state="normal")
-            self.geo_text.insert("1.0", f"Ошибка геолокации: {str(e)}")
+            self.geo_text.insert("1.0", self._("error_geo").format(str(e)))
             self.geo_text.configure(state="disabled")
             raise
     
@@ -1136,7 +1106,7 @@ class UltraSimpleScanner(ctk.CTk):
         try:
             self.ports_text.configure(state="normal")
             self.ports_text.delete("1.0", "end")
-            self.ports_text.insert("1.0", "Идет сканирование портов...\n")
+            self.ports_text.insert("1.0", self._("port_scanning") + "\n")
             self.ports_text.update()
             
             ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 995, 3306, 3389]
@@ -1161,23 +1131,23 @@ class UltraSimpleScanner(ctk.CTk):
                         result = future.result()
                         if result:
                             open_ports.append(result)
-                            self.ports_text.insert("end", f"Порт {result} открыт\n")
+                            self.ports_text.insert("end", f"{self._('port')} {result} {self._('open')}\n")
                             self.ports_text.see("end")
                     except Exception:
                         pass
             
             if open_ports:
                 self.ports_text.delete("1.0", "end")
-                self.ports_text.insert("1.0", "Открытые порты:\n")
+                self.ports_text.insert("1.0", self._("open_ports_found"))
                 for port in sorted(open_ports):
-                    self.ports_text.insert("end", f"- Порт {port}\n")
+                    self.ports_text.insert("end", f"- {self._('port')} {port}\n")
             else:
                 self.ports_text.delete("1.0", "end")
-                self.ports_text.insert("1.0", "Открытые порты не найдены\n")
+                self.ports_text.insert("1.0", self._("no_open_ports"))
             
             self.ports_text.configure(state="disabled")
         except Exception as e:
-            self.ports_text.insert("end", f"\n\nОшибка: {str(e)}")
+            self.ports_text.insert("end", f"\n\n{self._('error_ports').format(str(e))}")
             self.ports_text.configure(state="disabled")
             raise
     
@@ -1190,27 +1160,25 @@ class UltraSimpleScanner(ctk.CTk):
                 with open("subdomains.txt", "r") as f:
                     subdomains = [line.strip() for line in f if line.strip()]
             except Exception as e:
-                self.status_var.set(f"Ошибка чтения файла поддоменов: {str(e)}")
+                self.status_var.set(self._("error_reading_file").format(str(e)))
                 return
 
             if self.is_ip(target):
-                self.status_var.set("Сканирование поддоменов доступно только для доменов")
+                self.status_var.set(self._("subdomains_only_for_domains"))
                 return
                 
             domain = target.replace("www.", "") if target.startswith("www.") else target
             total_subdomains = len(subdomains)
-            self.status_var.set(f"Проверяем {total_subdomains} поддоменов...")
+            self.status_var.set(self._("checking_subdomains").format(total_subdomains))
             
-            # Проверяем wildcard DNS
             wildcard_ip = None
             try:
                 random_sub = f"randomsub-{random.randint(100000, 999999)}.{domain}"
                 wildcard_ip = socket.gethostbyname(random_sub)
-                self.status_var.set(f"Обнаружен wildcard DNS! Все поддомены указывают на {wildcard_ip}")
+                self.status_var.set(self._("wildcard_detected").format(wildcard_ip))
             except socket.gaierror:
                 wildcard_ip = None
             
-            # Получаем эталонные страницы 404
             not_found_templates = {}
             protocols = ["http", "https"]
             
@@ -1231,26 +1199,21 @@ class UltraSimpleScanner(ctk.CTk):
                     except Exception:
                         not_found_templates[protocol] = None
             
-            # Улучшенные User-Agents
             USER_AGENTS = [
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36",
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.1 Safari/605.1.15",
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/118.0",
             ]
             
-            # Функция для проверки поддомена
             def check_subdomain(sub):
                 full_domain = f"{sub}.{domain}"
                 
                 try:
-                    # Проверяем DNS запись
                     ip = socket.gethostbyname(full_domain)
                     
-                    # Если wildcard и IP совпадает - пропускаем
                     if wildcard_ip and ip == wildcard_ip:
                         return None
                     
-                    # Проверяем доступность
                     for protocol in protocols:
                         try:
                             headers = {"User-Agent": random.choice(USER_AGENTS)}
@@ -1266,9 +1229,7 @@ class UltraSimpleScanner(ctk.CTk):
                             
                             content_length = len(response.content)
                             
-                            # Фильтруем недоступные ресурсы
                             if response.status_code < 400:
-                                # Для wildcard DNS проверяем контент
                                 if wildcard_ip:
                                     if protocol in not_found_templates and not_found_templates[protocol]:
                                         current_hash = hashlib.md5(response.content).hexdigest()
@@ -1289,7 +1250,6 @@ class UltraSimpleScanner(ctk.CTk):
                     
                 return None
             
-            # Оптимальное количество потоков
             max_workers = 10 if wildcard_ip else 300
             
             processed_count = 0
@@ -1303,7 +1263,7 @@ class UltraSimpleScanner(ctk.CTk):
                     if self.scan_cancel:
                         for f in futures:
                             f.cancel()
-                        self.status_var.set("Сканирование отменено")
+                        self.status_var.set(self._("scan_canceled"))
                         break
                     
                     processed_count += 1
@@ -1317,18 +1277,20 @@ class UltraSimpleScanner(ctk.CTk):
                     except Exception as e:
                         pass
                     
-                    # Обновляем статус каждые 100 записей
                     if processed_count % 100 == 0:
                         self.status_var.set(
-                            f"Проверено поддоменов: {processed_count}/{total_subdomains}, "
-                            f"Найдено: {found_count}"
+                            self._("subdomains_checked").format(
+                                processed_count, 
+                                total_subdomains, 
+                                found_count
+                            )
                         )
             
             if not self.scan_cancel:
-                self.status_var.set(f"Найдено {found_count} поддоменов")
+                self.status_var.set(self._("subdomains_found").format(found_count))
                 
         except Exception as e:
-            self.status_var.set(f"Ошибка сканирования поддоменов: {str(e)}")
+            self.status_var.set(self._("error_subdomains").format(str(e)))
     
     def check_web_paths(self, target, port):
         try:
@@ -1339,7 +1301,7 @@ class UltraSimpleScanner(ctk.CTk):
                 with open("paths.txt", "r") as f:
                     paths = [line.strip() for line in f if line.strip()]
             except Exception as e:
-                self.status_var.set(f"Ошибка чтения файла: {str(e)}")
+                self.status_var.set(self._("error_reading_file").format(str(e)))
                 return
 
             USER_AGENTS = [
@@ -1353,7 +1315,6 @@ class UltraSimpleScanner(ctk.CTk):
             protocols = ["http", "https"]
             urls = []
             
-            # Формируем URL
             for protocol in protocols:
                 if port != 80:
                     base_url = f"{protocol}://{target}:{port}"
@@ -1369,9 +1330,8 @@ class UltraSimpleScanner(ctk.CTk):
                     urls.append(url)
             
             total_urls = len(urls)
-            self.status_var.set(f"Проверяем {total_urls} веб-путей...")
+            self.status_var.set(self._("checking_paths").format(total_urls))
             
-            # Функция для проверки URL
             def check_single_url(url):
                 try:
                     headers = {"User-Agent": random.choice(USER_AGENTS)}
@@ -1406,7 +1366,7 @@ class UltraSimpleScanner(ctk.CTk):
                     if self.scan_cancel:
                         for f in future_to_url:
                             f.cancel()
-                        self.status_var.set("Сканирование отменено")
+                        self.status_var.set(self._("scan_canceled"))
                         break
                     
                     processed_count += 1
@@ -1415,21 +1375,375 @@ class UltraSimpleScanner(ctk.CTk):
                         result = future.result()
                         if result:
                             found_count += 1
-                            # Сохраняем в порядке: (url, status, type)
                             self.path_queue.put((result[0], result[1], result[2]))
                             
                     except Exception as e:
                         pass
                     
-                    # Обновляем статус каждые 100 записей (ИСПРАВЛЕН ТЕКСТ)
                     if processed_count % 100 == 0:
-                        self.status_var.set(f"Проверено веб-путей: {processed_count}/{total_urls}, Найдено: {found_count}")
+                        self.status_var.set(
+                            self._("paths_checked").format(
+                                processed_count,
+                                total_urls,
+                                found_count
+                            )
+                        )
             
             if not self.scan_cancel:
-                self.status_var.set(f"Сканирование завершено! Найдено {found_count} веб-путей")
+                self.status_var.set(self._("paths_found").format(found_count))
             
         except Exception as e:
-            self.status_var.set(f"Ошибка: {str(e)}")
+            self.status_var.set(f"{self._('error')}: {str(e)}")
+
+    def show_settings(self):
+        """Показывает окно настроек"""
+        self.settings_window = ctk.CTkToplevel(self)
+        self.settings_window.title(self._("settings_title"))
+        self.settings_window.geometry("500x350")
+        self.settings_window.resizable(False, False)
+        self.settings_window.transient(self)
+        self.settings_window.grab_set()
+        
+        # Основной фрейм
+        main_frame = ctk.CTkFrame(self.settings_window, corner_radius=10)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Фрейм для настроек языка
+        lang_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        lang_frame.pack(fill="x", padx=10, pady=(10, 0))
+        
+        ctk.CTkLabel(
+            lang_frame,
+            text=self._("language_label"),
+            font=("Arial", 14, "bold"),
+            anchor="w"
+        ).pack(fill="x", pady=(0, 10))
+        
+        # Создаем фрейм для кнопок языка
+        lang_buttons_frame = ctk.CTkFrame(lang_frame, fg_color="transparent")
+        lang_buttons_frame.pack(fill="x", padx=5, pady=5)
+        
+        # Словарь с языками и флагами
+        languages = {
+            "en": ("English", ""),
+            "ru": ("Русский", "")
+        }
+        
+        self.lang_var = tk.StringVar(value=self.current_language)
+        
+        # Создаем кнопки для каждого языка
+        for lang_code, (lang_name, flag) in languages.items():
+            btn = ctk.CTkButton(
+                lang_buttons_frame,
+                text=f"{flag} {lang_name}",
+                command=lambda lc=lang_code: self.set_language(lc),
+                width=120,
+                height=40,
+                font=("Arial", 13),
+                fg_color="#3a7ebf" if self.current_language == lang_code else "#2a2d2e",
+                hover_color="#1f538d",
+                corner_radius=8
+            )
+            btn.pack(side="left", padx=5, pady=5)
+        
+        # Разделительная линия
+        ctk.CTkFrame(
+            main_frame, 
+            height=2, 
+            fg_color="#333333"
+        ).pack(fill="x", padx=20, pady=10)
+        
+        # Фрейм для настроек масштабирования
+        scale_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        scale_frame.pack(fill="x", padx=10, pady=(10, 0))
+        
+        ctk.CTkLabel(
+            scale_frame,
+            text=self._("scale_label"),
+            font=("Arial", 14, "bold"),
+            anchor="w"
+        ).pack(fill="x", pady=(0, 10))
+        
+        # Слайдер для масштабирования
+        self.scale_var = tk.DoubleVar(value=SCALING_FACTOR * 100)
+        
+        # Обработчики для плавного изменения
+        self.scale_slider = ctk.CTkSlider(
+            scale_frame,
+            variable=self.scale_var,
+            from_=80,
+            to=130,
+            number_of_steps=50,
+            command=self.on_scale_slider_move
+        )
+        self.scale_slider.pack(fill="x", padx=20, pady=10)
+        
+        # Метка с текущим значением
+        self.scale_value_label = ctk.CTkLabel(
+            scale_frame,
+            text=f"{int(self.scale_var.get())}%",
+            font=("Arial", 12)
+        )
+        self.scale_value_label.pack()
+        
+        # Фрейм для кнопок
+        buttons_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        buttons_frame.pack(fill="x", padx=20, pady=(10, 0))
+        
+        # Кнопка сохранить
+        save_btn = ctk.CTkButton(
+            buttons_frame,
+            text=self._("save_button"),
+            command=self.save_settings,
+            width=120,
+            height=35,
+            font=("Arial", 14),
+            fg_color="#27ae60",
+            hover_color="#2ecc71"
+        )
+        save_btn.pack(side="right", padx=(0, 10))
+        
+        # Кнопка закрытия
+        close_btn = ctk.CTkButton(
+            buttons_frame,
+            text=self._("close_button"),
+            command=self.settings_window.destroy,
+            width=120,
+            height=35,
+            font=("Arial", 14),
+            fg_color="#2c3e50",
+            hover_color="#34495e"
+        )
+        close_btn.pack(side="right")
+    
+    def set_language(self, lang):
+        """Устанавливает язык без сохранения"""
+        self.current_language = lang
+        # Обновляем кнопки языка в настройках
+        for widget in self.settings_window.winfo_children():
+            if isinstance(widget, ctk.CTkFrame):
+                for subwidget in widget.winfo_children():
+                    if isinstance(subwidget, ctk.CTkFrame):
+                        for btn in subwidget.winfo_children():
+                            if isinstance(btn, ctk.CTkButton):
+                                if "English" in btn.cget("text") and lang == "en":
+                                    btn.configure(fg_color="#3a7ebf")
+                                elif "Русский" in btn.cget("text") and lang == "ru":
+                                    btn.configure(fg_color="#3a7ebf")
+                                else:
+                                    btn.configure(fg_color="#2a2d2e")
+    
+    def on_scale_slider_move(self, value):
+        """Обновляет значение при перемещении слайдера"""
+        self.scale_value_label.configure(text=f"{int(float(value))}%")
+    
+    def save_settings(self):
+        """Сохраняет настройки и закрывает окно"""
+        # Сохраняем выбранный язык и масштаб
+        language = self.current_language
+        scaling = float(self.scale_var.get())
+        
+        # Сохраняем в файл
+        self.settings_manager.save_settings(language, scaling)
+        
+        # Закрываем окно настроек
+        self.settings_window.destroy()
+        
+        # Показываем сообщение о необходимости перезапуска
+        self.status_var.set(self._("settings_saved"))
+        
+    def change_language(self, lang):
+        """Изменяет язык интерфейса"""
+        self.current_language = lang
+        self.update_ui_texts()
+    
+    def update_ui_texts(self):
+        """Обновляет все тексты в интерфейсе без пересоздания вкладок"""
+        # Запоминаем текущую вкладку
+        current_tab = self.tabview.get()
+        
+        # Обновляем заголовки вкладок
+        self.tabview.configure(tab_names=[
+            self._("geo_tab"),
+            self._("paths_tab"),
+            self._("subdomains_tab")
+        ])
+        
+        # Обновляем другие тексты
+        self.title(self._("app_title"))
+        self.target_entry.configure(placeholder_text=self._("target_placeholder"))
+        self.scan_btn.configure(text=self._("scan_button"))
+        self.cancel_btn.configure(text=self._("cancel_button"))
+        self.status_var.set(self._("ready_status"))
+        
+        # Обновляем заголовки таблиц
+        self.paths_tree.heading("url", text=self._("url_column"))
+        self.paths_tree.heading("status", text=self._("status_column"))
+        self.paths_tree.heading("type", text=self._("type_column"))
+        
+        self.subdomains_tree.heading("subdomain", text=self._("subdomain_column"))
+        self.subdomains_tree.heading("ip", text=self._("ip_column"))
+        self.subdomains_tree.heading("status", text=self._("status_column"))
+        self.subdomains_tree.heading("length", text=self._("length_column"))
+        
+        # Обновляем контекстные меню
+        self.paths_context_menu.delete(0, "end")
+        self.paths_context_menu.add_command(label=self._("copy_button"), command=lambda: self.copy_treeview_data(self.paths_tree))
+        
+        self.subdomains_context_menu.delete(0, "end")
+        self.subdomains_context_menu.add_command(label=self._("copy_button"), command=lambda: self.copy_treeview_data(self.subdomains_tree))
+        
+        # Обновляем содержимое вкладки геолокации
+        self.update_geo_tab_texts()
+        
+        # Восстанавливаем выбранную вкладку
+        self.tabview.set(current_tab)
+    
+    def update_geo_tab_texts(self):
+        """Обновляет тексты на вкладке геолокации"""
+        # Обновляем заголовок
+        for widget in self.tab_geo.winfo_children():
+            if isinstance(widget, ctk.CTkFrame):
+                for child in widget.winfo_children():
+                    if isinstance(child, ctk.CTkLabel) and child.cget("text") == "Geo Location":
+                        child.configure(text=self._("geo_location"))
+                    elif isinstance(child, ctk.CTkLabel) and child.cget("text") == "Open Ports":
+                        child.configure(text=self._("open_ports"))
+        
+        # Обновляем текст в гео-тексте
+        if self.geo_text.get("1.0", "end-1c") != "":
+            self.geo_text.configure(state="normal")
+            self.geo_text.delete("1.0", "end")
+            self.geo_text.insert("1.0", self._("geo_location") + " " + self._("ready_status"))
+            self.geo_text.configure(state="disabled")
+        
+        # Обновляем текст в портах
+        if self.ports_text.get("1.0", "end-1c") != "":
+            self.ports_text.configure(state="normal")
+            self.ports_text.delete("1.0", "end")
+            self.ports_text.insert("1.0", self._("open_ports") + " " + self._("ready_status"))
+            self.ports_text.configure(state="disabled")
+    
+    def show_info(self):
+        """Показывает информационное окно о программе"""
+        info_window = ctk.CTkToplevel(self)
+        info_window.title(self._("info_title"))
+        info_window.geometry("650x500")
+        info_window.resizable(False, False)
+        info_window.iconbitmap("iconw.ico")
+        info_window.transient(self)
+        info_window.grab_set()
+        info_window.lift()
+        info_window.focus_force()
+        
+        # Основной фрейм
+        main_frame = ctk.CTkFrame(info_window, corner_radius=10)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # Фрейм для верхней части (картинка + заголовок)
+        top_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        top_frame.pack(fill="x", padx=10, pady=(10, 0))
+        
+        # Загружаем и размещаем картинку с прозрачностью
+        try:
+            pil_image = Image.open("logo.png").convert("RGBA")
+            logo_img = ctk.CTkImage(
+                light_image=pil_image,
+                dark_image=pil_image,
+                size=(100, 100)
+            )
+            img_label = ctk.CTkLabel(
+                top_frame, 
+                image=logo_img,
+                text="",
+                fg_color="transparent"
+            )
+            img_label.pack(side="left", padx=(0, 20))
+        except Exception as e:
+            img_label = ctk.CTkLabel(
+                top_frame, 
+                text="🌐", 
+                font=("Arial", 50),
+                fg_color="transparent"
+            )
+            img_label.pack(side="left", padx=(0, 20))
+        
+        # Заголовок рядом с картинкой
+        title_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        title_frame.pack(side="left", fill="both", expand=True)
+        
+        title_label = ctk.CTkLabel(
+            title_frame,
+            text=self._("app_title"),
+            font=("Arial", 24, "bold"),
+            anchor="w"
+        )
+        title_label.pack(pady=(10, 0))
+        
+        subtitle_label = ctk.CTkLabel(
+            title_frame,
+            text=self._("info_subtitle"),
+            font=("Arial", 16),
+            anchor="w"
+        )
+        subtitle_label.pack()
+        
+        # Разделительная линия
+        ctk.CTkFrame(
+            main_frame, 
+            height=2, 
+            fg_color="#333333"
+        ).pack(fill="x", padx=20, pady=10)
+        
+        # Информация о программе
+        info_label = ctk.CTkLabel(
+            main_frame,
+            text=self._("info_text"),
+            font=("Arial", 14),
+            justify="left",
+            anchor="w"
+        )
+        info_label.pack(fill="x", padx=20, pady=10)
+        
+        # Ссылка на GitHub
+        github_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        github_frame.pack(fill="x", padx=20, pady=(10, 15))
+        
+        ctk.CTkLabel(
+            github_frame,
+            text=self._("github_label"),
+            font=("Arial", 14, "bold"),
+            anchor="w"
+        ).pack(side="left", padx=(0, 10))
+        
+        github_link = ctk.CTkLabel(
+            github_frame,
+            text=self._("github_link"),
+            font=("Arial", 14, "underline"),
+            text_color="#3498db",
+            cursor="hand2",
+            anchor="w"
+        )
+        github_link.pack(side="left", fill="x", expand=True)
+        github_link.bind("<Button-1>", lambda e: self.open_github())
+        
+        # Кнопка закрытия
+        close_btn = ctk.CTkButton(
+            main_frame,
+            text=self._("close_button"),
+            command=info_window.destroy,
+            width=120,
+            height=35,
+            font=("Arial", 14),
+            fg_color="#2c3e50",
+            hover_color="#34495e"
+        )
+        close_btn.pack(pady=(10, 15))
+    
+    def open_github(self):
+        """Открывает GitHub в браузере"""
+        import webbrowser
+        webbrowser.open(self._("github_link"))
 
 if __name__ == "__main__":
     app = UltraSimpleScanner()
